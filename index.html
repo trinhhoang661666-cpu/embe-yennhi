@@ -45,6 +45,11 @@
       font-size:16px;
       cursor:pointer
     }
+    .status{
+      margin-top:10px;
+      font-size:14px;
+      opacity:.85
+    }
   </style>
 </head>
 
@@ -54,6 +59,7 @@
   <h1>📷 Nhìn vào camera nhé</h1>
   <p>Nhận diện khuôn mặt để mở bức thư bí mật 💌</p>
   <video id="video" autoplay muted playsinline></video>
+  <div class="status" id="status">Chưa bắt đầu</div>
   <button id="start">Bắt đầu nhận diện</button>
 </div>
 
@@ -64,8 +70,9 @@
 const video = document.getElementById('video');
 const btn   = document.getElementById('start');
 const card  = document.getElementById('card');
+const statusText = document.getElementById('status');
 
-// 👉 ẢNH ĐƯỢC PHÉP (đặt cùng thư mục index.html)
+// 👉 ẢNH MẪU (đặt cùng thư mục index.html)
 const AUTH_IMAGE = '1.jpg';
 let faceMatcher;
 
@@ -73,10 +80,19 @@ let faceMatcher;
 async function startCamera(){
   const stream = await navigator.mediaDevices.getUserMedia({ video:true });
   video.srcObject = stream;
+
+  await new Promise(resolve => {
+    video.onloadedmetadata = () => {
+      video.play();
+      resolve();
+    };
+  });
 }
 
-// ✅ LOAD MODEL ĐÚNG (KHÔNG LỖI 404)
+// load model (đúng link)
 async function loadModels(){
+  statusText.innerText = '⏳ Đang tải model...';
+
   const MODEL_URL =
     'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
 
@@ -87,16 +103,24 @@ async function loadModels(){
 
 // load khuôn mặt được phép
 async function loadAuthorizedFace(){
+  statusText.innerText = '📸 Đang phân tích ảnh mẫu...';
+
   const img = await faceapi.fetchImage(AUTH_IMAGE);
 
   const detection = await faceapi
-    .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+    .detectSingleFace(
+      img,
+      new faceapi.TinyFaceDetectorOptions({
+        inputSize: 224,
+        scoreThreshold: 0.5
+      })
+    )
     .withFaceLandmarks()
     .withFaceDescriptor();
 
   if(!detection){
     alert('❌ Không nhận diện được khuôn mặt trong ảnh 1.jpg');
-    return;
+    throw new Error('No face in auth image');
   }
 
   const labeled = new faceapi.LabeledFaceDescriptors(
@@ -104,38 +128,56 @@ async function loadAuthorizedFace(){
     [detection.descriptor]
   );
 
-  faceMatcher = new faceapi.FaceMatcher(labeled, 0.45);
+  // 👉 tăng độ dễ nhận
+  faceMatcher = new faceapi.FaceMatcher(labeled, 0.6);
 }
 
 // bắt đầu
 btn.onclick = async ()=>{
   btn.disabled = true;
-  btn.innerText = '⏳ Đang quét khuôn mặt...';
+  btn.innerText = 'Đang nhận diện...';
 
-  await loadModels();
-  await loadAuthorizedFace();
-  await startCamera();
+  try{
+    await loadModels();
+    await loadAuthorizedFace();
+    await startCamera();
 
-  const interval = setInterval(async ()=>{
-    const result = await faceapi
-      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
-      .withFaceLandmarks()
-      .withFaceDescriptor();
+    statusText.innerText = '🙂 Đang quét khuôn mặt...';
 
-    if(result && faceMatcher){
-      const match = faceMatcher.findBestMatch(result.descriptor);
-      if(match.label === 'my-love'){
-        clearInterval(interval);
-        unlock();
+    const interval = setInterval(async ()=>{
+      const result = await faceapi
+        .detectSingleFace(
+          video,
+          new faceapi.TinyFaceDetectorOptions({
+            inputSize: 224,
+            scoreThreshold: 0.5
+          })
+        )
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if(result && faceMatcher){
+        const match = faceMatcher.findBestMatch(result.descriptor);
+        console.log(match.toString());
+
+        if(match.label === 'my-love'){
+          clearInterval(interval);
+          unlock();
+        }
       }
-    }
-  }, 800);
+    }, 700);
+
+  }catch(e){
+    alert('Có lỗi xảy ra, mở Console để xem chi tiết');
+    console.error(e);
+  }
 };
 
 // mở khóa 💖
 function unlock(){
-  card.style.opacity = 0;
+  statusText.innerText = '💖 Đã nhận diện thành công';
 
+  card.style.opacity = 0;
   setTimeout(()=>{
     card.innerHTML = `
       <h1>💌 Chỉ dành cho riêng bạn</h1>
@@ -155,3 +197,4 @@ function unlock(){
 
 </body>
 </html>
+
